@@ -18,7 +18,6 @@ Database = psycopg2.connect(dbname=constants.POSTGRES_DB,
                             password=constants.POSTGRES_PASSWD,
                             host=constants.POSTGRES_HOST)
 
-
 # Points Cache
 # 568349: {
 #  "location": "",
@@ -38,6 +37,14 @@ Database = psycopg2.connect(dbname=constants.POSTGRES_DB,
 PointsCache = {}
 UsersCache = {}
 CacheLock = Lock()
+
+
+class VelobotException(Exception):
+    def __init__(self, *args):
+        self.message = args[0] if args else "null"
+
+    def __str__(self):
+        return "VelobotException: %s" % self.message
 
 
 class BotThread(Thread):
@@ -78,22 +85,15 @@ def preinstall_logger(logging_level):
 
 
 def preinstall_database(force):
+    global Database
+    cursor = Database.cursor()
     if force:
-        global Database
-        cursor = Database.cursor()
         cursor.execute('DROP TABLE IF EXISTS users;')
         cursor.execute('CREATE TABLE IF NOT EXISTS users ('
                        'chat_id INTEGER NOT NULL,'
                        'point_id VARCHAR NOT NULL,'
                        'PRIMARY KEY (chat_id, point_id)'
                        ');')
-        try:
-            Database.commit()
-            cursor.close()
-        except psycopg2.DatabaseError as error:
-            print(error)
-
-    cursor = Database.cursor()
     cursor.execute('SELECT * FROM users')
     records = cursor.fetchall()
     for record in records:
@@ -101,80 +101,128 @@ def preinstall_database(force):
             UsersCache[record[0]].append(record[1])
         else:
             UsersCache[record[0]] = [record[1]]
-    Logger.debug("YE")
-    Logger.debug(records)
-    Logger.debug(UsersCache)
-    cursor.close()
+    try:
+        Database.commit()
+    except psycopg2.DatabaseError as error:
+        Logger.debug("Database error: %s" % error)
+    finally:
+        cursor.close()
+    Logger.debug("UsersCache:", UsersCache)
 
 
 def bind_handlers():
     @Bot.message_handler(commands=['start'])
     def handle_start(message):
-        Logger.debug(handle_start.__name__)
-
+        Logger.debug(handle_start.__name__, message)
         Bot.send_message(message.chat.id, "Привет! Я бот для уведомлений о загруженности велостоянок. Просто отправь "
-                                          "мне ближайшую к требуемой велопарковке локацию и я сама буду уведомлять "
-                                          "тебя, когда там будет появляться нужное количество велосипедов :)")
+                                          "мне несколько локаций и смотри загруженность ближайщих к ним стоянок через"
+                                          " команду /status")
 
     @Bot.message_handler(commands=['status'])
     def handle_status(message):
-        Logger.debug(handle_status.__name__)
+        Logger.debug(handle_status.__name__, message)
         CacheLock.acquire()
         try:
             if message.chat.id not in UsersCache:
                 Logger.debug("There are no points")
-                CacheLock.release()
-                return
-            Logger.debug(UsersCache[message.chat.id])
+                raise VelobotException("No points for user")
             for point_id in UsersCache[message.chat.id]:
-                Logger.debug(UsersCache[message.chat.id])
-                Logger.debug(point_id)
                 point = PointsCache[point_id]
-                Logger.debug(point)
-                Bot.send_message(message.chat.id, "Адрес: %s\nСвободно велосипедов: %s\nВсего портов: %s"
-                                                  % (point["address"],
-                                                     point["available_ordinary"],
-                                                     point["total_ordinary"]))
                 Bot.send_location(message.chat.id, point["location"][0], point["location"][1])
-        except KeyError:
+                Bot.send_message(message.chat.id, "Адрес: %s\nДоступно велосипедов: %s\nВсего портов: %s"
+                                 % (point["address"],
+                                    point["available_ordinary"],
+                                    point["total_ordinary"]))
+        except (KeyError, VelobotException):
             Bot.send_message(message.chat.id, "Упс! У вас еще нет сохраненных точек проката")
-        CacheLock.release()
+        finally:
+            CacheLock.release()
+
+    @Bot.callback_query_handler(func=lambda call: True)
+    def callback_handle(call):
+        Logger.debug(callback_handle.__name__, call.data)
+        global Database
+        CacheLock.acquire()
+        try:
+            assert call.message.chat.id in UsersCache
+            assert call.data in UsersCache[call.message.chat.id]
+            assert call.data in PointsCache
+            cursor = Database.cursor()
+            cursor.execute('DELETE FROM users WHERE chat_id=%s AND point_id=%s;',
+                           (str(call.message.chat.id),
+                            str(call.data)))
+            try:
+                Database.commit()
+            except psycopg2.DatabaseError as error:
+                Logger.debug("Database error: %s" % error)
+            finally:
+                cursor.close()
+            UsersCache[call.message.chat.id].remove(call.data)
+            Bot.send_message(call.message.chat.id, "Ок, больше не буду показывать эту точку :)")
+        finally:
+            CacheLock.release()
+
+    @Bot.message_handler(commands=['manage'])
+    def handle_manage(message):
+        Logger.debug(handle_manage.__name__, message)
+        CacheLock.acquire()
+        try:
+            if message.chat.id not in UsersCache:
+                Logger.debug("There are no points")
+                raise VelobotException("No points for user")
+            for point_id in UsersCache[message.chat.id]:
+                point = PointsCache[point_id]
+                Bot.send_location(message.chat.id, point["location"][0], point["location"][1])
+                markup = telebot.types.InlineKeyboardMarkup()
+                markup.add(telebot.types.InlineKeyboardButton(text="Удалить", callback_data=point_id))
+                Bot.send_message(message.chat.id, "Адрес: %s" % (point["address"]), reply_markup=markup)
+        except (KeyError, VelobotException):
+            Bot.send_message(message.chat.id, "Упс! У вас еще нет сохраненных точек проката")
+        finally:
+            CacheLock.release()
 
     @Bot.message_handler(content_types=['location'])
     def handle_new_location(message):
-        Logger.debug(handle_new_location.__name__)
-
-        CacheLock.acquire()
+        Logger.debug(handle_new_location.__name__, message)
         user_point = (message.location.latitude, message.location.longitude)
         min_distance = False
         min_bike = -1
-        for key in PointsCache.keys():
-            item = PointsCache[key]
-            distance = haversine(item['location'], user_point, Unit.METERS)
-            if min_distance is False or min_distance > distance:
-                min_distance = distance
-                min_bike = key
-        if message.chat.id in UsersCache:
-            if min_bike in UsersCache[message.chat.id]:
-                Logger.debug(PointsCache)
-                Logger.debug("This location alreay exists")
-                Bot.send_message(message.chat.id, "Ой. Кажется, вы уже подписаны на ближайщую точку проката")
-                CacheLock.release()
-                return
-            UsersCache[message.chat.id].append(min_bike)
-        else:
-            UsersCache[message.chat.id] = [min_bike]
-        CacheLock.release()
-
+        min_address = "null"
+        min_location = False
+        # TODO Добавить поддержку транзакционности
+        CacheLock.acquire()
+        try:
+            for key in PointsCache.keys():
+                item = PointsCache[key]
+                distance = haversine(item['location'], user_point, Unit.METERS)
+                if min_distance is False or min_distance > distance:
+                    min_distance = distance
+                    min_bike = key
+                    min_address = item['address']
+                    min_location = item['location']
+            if message.chat.id in UsersCache:
+                if min_bike in UsersCache[message.chat.id]:
+                    Bot.send_message(message.chat.id, "Ой. Кажется, вы уже подписаны на ближайщую точку проката")
+                    raise VelobotException("Location already exists")
+                UsersCache[message.chat.id].append(min_bike)
+            else:
+                UsersCache[message.chat.id] = [min_bike]
+        except VelobotException:
+            pass
+        finally:
+            CacheLock.release()
         cursor = Database.cursor()
         cursor.execute('INSERT INTO users VALUES (%s, %s);',
                        (str(message.chat.id),
                         str(min_bike)))
         try:
             Database.commit()
-            cursor.close()
+            Bot.send_location(message.chat.id, min_location[0], min_location[1])
+            Bot.send_message(message.chat.id, "Я добавил новую велопарковку по адресу %s" % min_address)
         except psycopg2.DatabaseError as error:
-            print(error)
+            Logger.debug("Database error: %s" % error)
+        finally:
+            cursor.close()
 
 
 def start():
@@ -182,12 +230,15 @@ def start():
     preinstall_database(False)
     bind_handlers()
 
-    scrapper_thread = ScraperThread()
-    bot_thread = BotThread()
-    scrapper_thread.start()
-    bot_thread.start()
-    scrapper_thread.join()
-    bot_thread.join()
+    try:
+        scrapper_thread = ScraperThread()
+        bot_thread = BotThread()
+        scrapper_thread.start()
+        bot_thread.start()
+        scrapper_thread.join()
+        bot_thread.join()
+    except BaseException as error:
+        Logger.error("Error occurred: %s" % error)
 
 
 if __name__ == "__main__":
