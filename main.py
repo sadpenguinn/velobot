@@ -93,6 +93,19 @@ def preinstall_database(force):
         except psycopg2.DatabaseError as error:
             print(error)
 
+    cursor = Database.cursor()
+    cursor.execute('SELECT * FROM users')
+    records = cursor.fetchall()
+    for record in records:
+        if record[0] in UsersCache:
+            UsersCache[record[0]].append(record[1])
+        else:
+            UsersCache[record[0]] = [record[1]]
+    Logger.debug("YE")
+    Logger.debug(records)
+    Logger.debug(UsersCache)
+    cursor.close()
+
 
 def bind_handlers():
     @Bot.message_handler(commands=['start'])
@@ -108,11 +121,16 @@ def bind_handlers():
         Logger.debug(handle_status.__name__)
         CacheLock.acquire()
         try:
+            if message.chat.id not in UsersCache:
+                Logger.debug("There are no points")
+                CacheLock.release()
+                return
+            Logger.debug(UsersCache[message.chat.id])
             for point_id in UsersCache[message.chat.id]:
-                point = PointsCache[point_id]
-                Logger.debug(point)
                 Logger.debug(UsersCache[message.chat.id])
                 Logger.debug(point_id)
+                point = PointsCache[point_id]
+                Logger.debug(point)
                 Bot.send_message(message.chat.id, "Адрес: %s\nСвободно велосипедов: %s\nВсего портов: %s"
                                                   % (point["address"],
                                                      point["available_ordinary"],
@@ -137,6 +155,12 @@ def bind_handlers():
                 min_distance = distance
                 min_bike = key
         if message.chat.id in UsersCache:
+            if min_bike in UsersCache[message.chat.id]:
+                Logger.debug(PointsCache)
+                Logger.debug("This location alreay exists")
+                Bot.send_message(message.chat.id, "Ой. Кажется, вы уже подписаны на ближайщую точку проката")
+                CacheLock.release()
+                return
             UsersCache[message.chat.id].append(min_bike)
         else:
             UsersCache[message.chat.id] = [min_bike]
@@ -155,7 +179,7 @@ def bind_handlers():
 
 def start():
     preinstall_logger(logging.DEBUG)
-    preinstall_database(True)
+    preinstall_database(False)
     bind_handlers()
 
     scrapper_thread = ScraperThread()
