@@ -1,0 +1,36 @@
+version: '3'
+services:
+  database:
+    image: postgres
+    container_name: database
+    environment:
+      - node.name=database
+      - cluster.name=velobot-cluster
+      - cluster.initial_master_nodes=velobot,database
+      - bootstrap.memory_lock=true
+    networks:
+      - fullstack
+    env_file:
+      - postgres.env
+    volumes:
+      - datastore:/var/lib/postgresql/data/
+  velobot:
+    image: velobot
+    container_name: velobot
+    environment:
+      - node.name=velobot
+      - cluster.name=velobot-cluster
+      - cluster.initial_master_nodes=velobot,database
+      - bootstrap.memory_lock=true
+    networks:
+      - fullstack
+    depends_on:
+      - database
+
+volumes:
+  datastore:
+    driver: local
+
+networks:
+  fullstack:
+    driver: bridge
