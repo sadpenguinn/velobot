@@ -62,9 +62,9 @@ class ScraperThread(Thread):
                         available_ordinary=item['AvailableOrdinaryBikes'],
                         total_electric=item['TotalElectricPlaces'],
                         available_electric=item['AvailableElectricBikes'])
-                Logger.debug(PointsCache)
-                Logger.debug(UsersCache)
                 CacheLock.release()
+                assert len(PointsCache) > 0
+                Logger.debug(ScraperThread.__name__ + ': Fetched')
             time.sleep(constants.VELOBIKE_TIMEOUT)
 
 
@@ -121,10 +121,6 @@ def bind_handlers():
         except KeyError:
             Bot.send_message(message.chat.id, "Упс! У вас еще нет сохраненных точек проката")
         CacheLock.release()
-        # print("PointsCache", flush=True)
-        # print(PointsCache, flush=True)
-        # print("UsersCache", flush=True)
-        # print(UsersCache, flush=True)
 
     @Bot.message_handler(content_types=['location'])
     def handle_new_location(message):
@@ -155,10 +151,6 @@ def bind_handlers():
             cursor.close()
         except psycopg2.DatabaseError as error:
             print(error)
-        # print("PointsCache", flush=True)
-        # print(PointsCache, flush=True)
-        # print("UsersCache", flush=True)
-        # print(UsersCache, flush=True)
 
 
 def start():
