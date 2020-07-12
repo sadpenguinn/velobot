@@ -88,13 +88,13 @@ def preinstall_database(force):
     global Database
     cursor = Database.cursor()
     if force:
-        cursor.execute('DROP TABLE IF EXISTS users;')
-        cursor.execute('CREATE TABLE IF NOT EXISTS users ('
+        cursor.execute('DROP TABLE IF EXISTS %s;' % constants.POSTGRES_TABLE)
+        cursor.execute('CREATE TABLE IF NOT EXISTS %s ('
                        'chat_id INTEGER NOT NULL,'
                        'point_id VARCHAR NOT NULL,'
                        'PRIMARY KEY (chat_id, point_id)'
-                       ');')
-    cursor.execute('SELECT * FROM users')
+                       ');' % constants.POSTGRES_TABLE)
+    cursor.execute('SELECT * FROM %s' % constants.POSTGRES_TABLE)
     records = cursor.fetchall()
     for record in records:
         if record[0] in UsersCache:
@@ -148,8 +148,9 @@ def bind_handlers():
             assert call.data in UsersCache[call.message.chat.id]
             assert call.data in PointsCache
             cursor = Database.cursor()
-            cursor.execute('DELETE FROM users WHERE chat_id=%s AND point_id=%s;',
-                           (str(call.message.chat.id),
+            cursor.execute('DELETE FROM %s WHERE chat_id=%s AND point_id=%s;' %
+                           (constants.POSTGRES_TABLE,
+                            str(call.message.chat.id),
                             str(call.data)))
             try:
                 Database.commit()
@@ -183,7 +184,8 @@ def bind_handlers():
 
     @Bot.message_handler(content_types=['location'])
     def handle_new_location(message):
-        Logger.debug(handle_new_location.__name__, message)
+        Logger.debug(handle_new_location.__name__)
+        Logger.debug(message)
         user_point = (message.location.latitude, message.location.longitude)
         min_distance = False
         min_bike = -1
@@ -212,8 +214,9 @@ def bind_handlers():
         finally:
             CacheLock.release()
         cursor = Database.cursor()
-        cursor.execute('INSERT INTO users VALUES (%s, %s);',
-                       (str(message.chat.id),
+        cursor.execute("INSERT INTO %s VALUES (%s, %s);" %
+                       (constants.POSTGRES_TABLE,
+                        str(message.chat.id),
                         str(min_bike)))
         try:
             Database.commit()
@@ -227,7 +230,7 @@ def bind_handlers():
 
 def start():
     preinstall_logger(logging.DEBUG)
-    preinstall_database(False)
+    preinstall_database(constants.POSTGRES_PREINSTALL)
     bind_handlers()
 
     try:

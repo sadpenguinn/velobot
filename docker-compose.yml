@@ -26,11 +26,39 @@ services:
       - fullstack
     depends_on:
       - database
+#  database_test:
+#    image: postgres
+#    container_name: database_test
+#    environment:
+#      - node.name=database_test
+#      - cluster.name=velobot-cluster
+#      - cluster.initial_master_nodes=velobot_test,database_test
+#      - bootstrap.memory_lock=true
+#    networks:
+#      - test
+#    env_file:
+#      - postgres.env
+#    volumes:
+#      - datastore:/var/lib/postgresql/data/
+#  velobot_test:
+#    image: velobot_test
+#    container_name: velobot_test
+#    environment:
+#      - node.name=velobot_test
+#      - cluster.name=velobot-cluster
+#      - cluster.initial_master_nodes=velobot_test,database_test
+#      - bootstrap.memory_lock=true
+#    networks:
+#      - test
+#    depends_on:
+#      - database_test
 
 volumes:
   datastore:
     driver: local
 
 networks:
+#  test:
+#    driver: bridge
   fullstack:
     driver: bridge
