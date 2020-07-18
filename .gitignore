@@ -138,5 +138,8 @@ dmypy.json
 cython_debug/
 
 # Tokens
-constants.py
+Dockerfile
+docker-compose.yml
 postgres.env
+constants.py
+sensitive.py

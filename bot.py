@@ -9,13 +9,15 @@ import telebot
 import psycopg2
 from haversine import haversine, Unit
 
+import sensitive
 import constants
 
+
 Logger = logging.getLogger()
-Bot = telebot.TeleBot(constants.TOKEN)
+Bot = telebot.TeleBot(sensitive.TOKEN)
 Database = psycopg2.connect(dbname=constants.POSTGRES_DB,
-                            user=constants.POSTGRES_USER,
-                            password=constants.POSTGRES_PASSWD,
+                            user=sensitive.POSTGRES_USER,
+                            password=sensitive.POSTGRES_PASSWD,
                             host=constants.POSTGRES_HOST)
 
 # Points Cache
@@ -28,12 +30,10 @@ Database = psycopg2.connect(dbname=constants.POSTGRES_DB,
 #  "available_electric": ""
 # }
 # Users Cache
-# 596048: {
-#   "points": [
-#     568349,
-#     568352,
-#   ]
-# }
+# 596048: [
+#   568349,
+#   568352,
+# ]
 PointsCache = {}
 UsersCache = {}
 CacheLock = Lock()
