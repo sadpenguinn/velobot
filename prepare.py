@@ -9,18 +9,20 @@ from enum import IntEnum
 import sensitive
 
 
+DOCKER_COMPOSE_DATABASE_PROD = 'database'
+DOCKER_COMPOSE_DATABASE_TEST = 'database_test'
 DOCKER_COMPOSE_BOTNAME_PROD = 'velobot'
 DOCKER_COMPOSE_BOTNAME_TEST = 'velobot_test'
 DOCKER_COMPOSE_PATH = 'docker-compose.yml'
 DOCKER_COMPOSE = '''version: '3'
 services:
-  database:
+  {1}:
     image: postgres
-    container_name: database
+    container_name: {1}
     environment:
-      - node.name=database
+      - node.name={1}
       - cluster.name={0}-cluster
-      - cluster.initial_master_nodes={0},database
+      - cluster.initial_master_nodes={0},{1}
       - bootstrap.memory_lock=true
     networks:
       - fullstack
@@ -34,12 +36,12 @@ services:
     environment:
       - node.name={0}
       - cluster.name={0}-cluster
-      - cluster.initial_master_nodes={0},database
+      - cluster.initial_master_nodes={0},{1}
       - bootstrap.memory_lock=true
     networks:
       - fullstack
     depends_on:
-      - database
+      - {1}
 volumes:
   datastore:
     driver: local
@@ -49,18 +51,20 @@ networks:
 '''
 
 POSTGRES_ENV_PATH = 'postgres.env'
-POSTGRES_ENV = '''POSTGRES_USER = '{0}'
-POSTGRES_PASSWD = '{1}'
-POSTGRES_DB = 'velobot'
+POSTGRES_ENV = '''POSTGRES_USER={0}
+POSTGRES_PASSWD={1}
+POSTGRES_DB=velobot
+POSTGRES_HOST_AUTH_METHOD=trust
 '''
 
 DOCKER_PATH = 'Dockerfile'
 DOCKER = '''FROM python:3.7
-ADD main.py /
+ADD bot.py /
 ADD constants.py /
+ADD sensitive.py /
 ADD requirements.txt /
 RUN pip install -r /requirements.txt
-CMD [ "python3.7", "/main.py" ]
+CMD [ "python3.7", "/bot.py" ]
 '''
 
 CONSTANTS_PATH = 'constants.py'
@@ -68,9 +72,8 @@ CONSTANTS_POSTGRES_TABLE_PROD = 'user_point_links'
 CONSTANTS_POSTGRES_TABLE_TEST = 'user_point_links_test'
 CONSTANTS_POSTGRES_REINSTALL = False
 CONSTANTS_VELOBIKE_TIMEOUT = 60 * 5
-CONSTANTS = '''
-POSTGRES_DB = 'velobot'
-POSTGRES_HOST = 'database'
+CONSTANTS = '''POSTGRES_DB = 'velobot'
+POSTGRES_HOST = '{3}'
 POSTGRES_TABLE = '{0}'
 POSTGRES_PREINSTALL = {1}
 VELOBIKE_URL = 'https://velobike.ru/ajax/parkings/'
@@ -115,9 +118,9 @@ def prepare_docker(args):
     trace('Prepare docker-compose file')
     force_remove(DOCKER_COMPOSE_PATH)
     with open(DOCKER_COMPOSE_PATH, 'tx') as file:
-        docker_compose_out = DOCKER_COMPOSE.format(DOCKER_COMPOSE_BOTNAME_PROD) \
+        docker_compose_out = DOCKER_COMPOSE.format(DOCKER_COMPOSE_BOTNAME_PROD, DOCKER_COMPOSE_DATABASE_PROD) \
             if args.env is Environment.PROD \
-            else DOCKER_COMPOSE.format(DOCKER_COMPOSE_BOTNAME_TEST)
+            else DOCKER_COMPOSE.format(DOCKER_COMPOSE_BOTNAME_TEST, DOCKER_COMPOSE_DATABASE_TEST)
         file.write(docker_compose_out)
         trace('Prepare docker-compose file is finished')
 
@@ -135,11 +138,13 @@ def prepare_constants(args):
     with open(CONSTANTS_PATH, 'tx') as file:
         constants_out = CONSTANTS.format(CONSTANTS_POSTGRES_TABLE_PROD,
                                          CONSTANTS_POSTGRES_REINSTALL,
-                                         CONSTANTS_VELOBIKE_TIMEOUT) \
+                                         CONSTANTS_VELOBIKE_TIMEOUT,
+                                         DOCKER_COMPOSE_DATABASE_PROD) \
             if args.env is Environment.PROD \
             else CONSTANTS.format(CONSTANTS_POSTGRES_TABLE_TEST,
                                   CONSTANTS_POSTGRES_REINSTALL,
-                                  CONSTANTS_VELOBIKE_TIMEOUT)
+                                  CONSTANTS_VELOBIKE_TIMEOUT,
+                                  DOCKER_COMPOSE_DATABASE_TEST)
         file.write(constants_out)
         trace('Prepare constants file is finished')
 
