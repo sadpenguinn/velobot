@@ -39,6 +39,17 @@ UsersCache = {}
 CacheLock = Lock()
 
 
+class LoggingUtils:
+    @staticmethod
+    def log_telegram_message(func_name, message):
+        Logger.debug("%s: New message with type %s from %s %s @%s %s" % (func_name,
+                                                                         message.content_type,
+                                                                         message.from_user.first_name,
+                                                                         message.from_user.last_name,
+                                                                         message.from_user.username,
+                                                                         message.from_user.id))
+
+
 class VelobotException(Exception):
     def __init__(self, *args):
         self.message = args[0] if args else "null"
@@ -184,8 +195,7 @@ def bind_handlers():
 
     @Bot.message_handler(content_types=['location'])
     def handle_new_location(message):
-        Logger.debug(handle_new_location.__name__)
-        Logger.debug(message)
+        LoggingUtils.log_telegram_message(handle_new_location.__name__, message)
         user_point = (message.location.latitude, message.location.longitude)
         min_distance = False
         min_bike = -1
