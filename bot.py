@@ -2,7 +2,6 @@ import sys
 import logging
 import json
 import time
-import functools
 import urllib.request
 from threading import Thread, Lock
 
@@ -13,9 +12,8 @@ from haversine import haversine, Unit
 import sensitive
 import constants
 
-
 Logger = logging.getLogger()
-Bot = telebot.TeleBot(sensitive.TOKEN)
+Bot = telebot.TeleBot(constants.TOKEN)
 Database = psycopg2.connect(dbname=constants.POSTGRES_DB,
                             user=sensitive.POSTGRES_USER,
                             password=sensitive.POSTGRES_PASSWD,
@@ -40,8 +38,8 @@ UsersCache = {}
 CacheLock = Lock()
 
 MainKeyboard = telebot.types.ReplyKeyboardMarkup()
-status_button = telebot.types.KeyboardButton('Мои парковки')
-manage_button = telebot.types.KeyboardButton('Управление')
+status_button = telebot.types.KeyboardButton(text='Мои парковки')
+manage_button = telebot.types.KeyboardButton(text='Управление')
 MainKeyboard.add(status_button, manage_button)
 
 
@@ -72,6 +70,7 @@ class LoggingUtils:
                 'text': str(msg.text),
                 'location': str(msg.location),
             }.get(t, 'null')
+
         Logger.debug("%s: New message with type %s from %s %s - @%s - id: %s: %s" % (func_name,
                                                                                      message.content_type,
                                                                                      message.from_user.first_name,
@@ -161,9 +160,10 @@ def bind_handlers():
 
         global MainKeyboard
         Bot.send_message(message.chat.id, "Привет! Я бот для уведомлений о загруженности велостоянок. Просто отправь "
-                                          "мне несколько локаций и смотри загруженность ближайщих к ним стоянок через"
-                                          " команду /status", reply_markup=MainKeyboard)
+                                          "мне несколько локаций и смотри загруженность ближайщих к ним стоянок по "
+                                          "кнопке в меню ", reply_markup=MainKeyboard)
 
+    @Bot.message_handler(content_types=['text'], func=lambda message: True if message.text == 'Мои парковки' else False)
     @Bot.message_handler(commands=['status'])
     def handle_status(message):
         LoggingUtils.log(handle_new_location.__name__, message)
@@ -183,7 +183,7 @@ def bind_handlers():
                                 point["available_ordinary"],
                                 point["total_ordinary"]))
 
-    @Bot.callback_query_handler(func=lambda call: True)
+    @Bot.callback_query_handler(func=lambda call: False)
     def callback_handle(call):
         LoggingUtils.log(handle_new_location.__name__, call)
 
@@ -219,6 +219,7 @@ def bind_handlers():
         Transaction.commit(call.message.chat.id, users[call.message.chat.id])
         Bot.send_message(call.message.chat.id, "Ок, больше не буду показывать эту точку :)")
 
+    @Bot.message_handler(content_types=['text'], func=lambda message: True if message.text == 'Управление' else False)
     @Bot.message_handler(commands=['manage'])
     def handle_manage(message):
         LoggingUtils.log(handle_new_location.__name__, message)
@@ -247,9 +248,13 @@ def bind_handlers():
             point = None
             address = None
             location = None
+
         user_point = (message.location.latitude, message.location.longitude)
         nearest = Nearest
         points, users = Transaction.open()
+        if len(users) == 0:
+            Logger.warning('Empty users cache')
+            return
         changes = []
 
         # find nearest velobike station
