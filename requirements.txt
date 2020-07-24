@@ -1,5 +1,9 @@
 pytelegrambotapi >= 3.7.1
 psycopg2 >= 2.8.5
 haversine >= 2.2.0
+<<<<<<< HEAD
 pyrogram >= 0.1.2
 pytest >= 5.0.0
+=======
+telethon >= 1.15.0
+>>>>>>> 352ced50185f008da7570300b1d4f6b389f09334
